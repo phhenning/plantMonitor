@@ -3,7 +3,7 @@ import argparse
 import csv
 import random
 import time
-import socket
+import urllib.request
 
 from prometheus_client import start_http_server, Summary, Gauge
 
@@ -16,12 +16,12 @@ from prometheus_client import start_http_server, Summary, Gauge
 
 
 def printHelp():
-	print("Provide a name for dataset and optional pass/fail and profile template") 
-	print("eg -name=test1 --fail=false ") 
+	print("Number of datasets must be larger or equal to number of failed sets ") 
+	print("eg --count=10 --fail=2 ") 
 
 parser = argparse.ArgumentParser()
-parser.add_argument( "--name", help="name of dataset")
-parser.add_argument( "--fail", help="set to true if  profile should produce bad data", default = False)
+parser.add_argument( "--count", help="number of datasets", default = 10)
+parser.add_argument( "--fail", help="set to number of failed profiles", default = 2)
 parser.add_argument( "--file", help="file name of profile to use", default = "template.csv")
 parser.add_argument( "--port", help="http port to which to publish", default = 8765)
 parser.add_argument( "--loop", help="keep looping", default = True)
@@ -29,23 +29,21 @@ parser.add_argument( "--period", help="period in seconds, at witch to update sam
 
 args = parser.parse_args()
 
-if args.name == "None":
+if int(args.count) < int (args.fail):
 	printHelp()
 	quit()
 
 
-name = args.name.replace(" ", "_")
-
-print( "DataSet name {} pass {} template {} publishing to {}:{}" .format(
-	args.name,
-	not args.fail,
+print( "DataSet count {}, fail {} template {} publishing to {}:{}" .format(
+	args.count,
+	args.fail,
 	args.file,
-	socket.gethostbyname(socket.gethostname()) ,
+	urllib.request.urlopen('https://ident.me').read().decode('utf8') ,
 	args.port
 ))
 
 
-class samplePoint:
+class samplePoint():
 	def __init__(self, n, t, gp, bp):
 			self.n = n    	# time
 			self.t = t		# temperature
@@ -53,37 +51,50 @@ class samplePoint:
 			self.bp = bp    # bad pH
 
 # read csv file into data array 
-data = []
+csvData = []
 with open(args.file, newline='') as csvfile:
 	reader = csv.DictReader(csvfile)
 	for row in reader:
 		tmp = samplePoint(row['time'], row['Temp'], row['good_pH'], row['bad_pH'])
-		data.append(tmp)
+		csvData.append(tmp)
 
 
+class sampleGauges():
+	def __init__(self, t, p):
+		self.temp = t
+		self.ph = p
 
-gaugeTemp = Gauge(name+'_temp', 'sample temperature measurement' )
-gaugePh = Gauge(name+'_ph', 'sample ph measurement')
+gaugeSets = []
+failIndex = [] 	# index if datasets with failed values
+while len(failIndex) < int(args.fail):
+	x = random.randint(1,int(args.count))
+	if x not in failIndex:
+		failIndex.append(x)
+
+#make all gauges
+for i in range(int(args.count)):
+	tg = Gauge('sample_'+ str(i) +'_temp', 'sample ' +  str(i) + ' temperature measurement' )
+	pg = Gauge('sample_'+ str(i) +'_ph', 'sample ' + str(i) + ' ph measurement' )
+	gaugeSets.append(sampleGauges(tg,pg))
 
 
 if __name__ == '__main__':
 	# Start up the server to expose the metrics.
-	start_http_server(8000)
+	start_http_server(int(args.port))
 
 	doLoop = True
 	while doLoop: 					# do for loop at least once
-		for d in data:
-			temp =  float(d.t)  + 	random.randrange(-3,3) * random.random() # add random nes around template value
-
-			# publish good or bad pH
-			if args.fail :
-				ph =  float(d.gp)  + 	random.randrange(-1,1) * random.random() # add random nes around template value
-			else :
-				ph =  float(d.bp)  - 	random.randrange(-1,1) * random.random() # add random nes around template value
-
-			gaugeTemp.set(temp)
-			gaugePh.set(ph)
-			print(temp , "   ", ph ) 
-			time.sleep(args.period)
-		doLoop = args.loop		# load loop instruction from command line
-
+		for d in csvData:			#use next value in csv data set
+			for i in range (int(args.count)):
+				temp =  float(d.t)  + 	random.randrange(-3,3) * random.random() # add random nes around template value
+				if i in failIndex:
+					ph =  float(d.bp)  - 	random.randrange(-1,1) * random.random() # add random nes around template value
+				else:	
+					ph =  float(d.gp)  + 	random.randrange(-1,1) * random.random() # add random nes around template value
+				gaugeSets[i].temp.set(temp)
+				gaugeSets[i].ph.set(ph)
+				print(temp , "   ", ph ) 
+			time.sleep(int(args.period))
+			
+	doLoop = args.loop		# load loop instruction from command line
+print("done")
