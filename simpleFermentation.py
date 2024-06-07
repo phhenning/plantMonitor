@@ -3,7 +3,7 @@ import argparse
 import csv
 import random
 import time
-import urllib.request
+import socket
 
 from prometheus_client import start_http_server, Summary, Gauge
 
@@ -34,11 +34,13 @@ if int(args.count) < int (args.fail):
 	quit()
 
 
+
+address = socket.getaddrinfo(socket.gethostname(), None) 
 print( "DataSet count {}, fail {} template {} publishing to {}:{}" .format(
 	args.count,
 	args.fail,
 	args.file,
-	urllib.request.urlopen('https://ident.me').read().decode('utf8') ,
+	(address[0][4][0]),
 	args.port
 ))
 
@@ -73,8 +75,10 @@ while len(failIndex) < int(args.fail):
 
 #make all gauges
 for i in range(int(args.count)):
-	tg = Gauge('sample_'+ str(i) +'_temp', 'sample ' +  str(i) + ' temperature measurement' )
-	pg = Gauge('sample_'+ str(i) +'_ph', 'sample ' + str(i) + ' ph measurement' )
+	tg = Gauge('sample_'+ str(i) +'_temp', 'sample ' +  str(i) + ' temperature measurement' ,['measurement'] )
+	pg = Gauge('sample_'+ str(i) +'_ph', 'sample ' + str(i) + ' ph measurement',['measurement'] )
+#	tg.labels(measurement='temperature')
+#	pg.labels(measurement='ph').inc()
 	gaugeSets.append(sampleGauges(tg,pg))
 
 
@@ -91,8 +95,8 @@ if __name__ == '__main__':
 					ph =  float(d.bp)  - 	random.randrange(-1,1) * random.random() # add random nes around template value
 				else:	
 					ph =  float(d.gp)  + 	random.randrange(-1,1) * random.random() # add random nes around template value
-				gaugeSets[i].temp.set(temp)
-				gaugeSets[i].ph.set(ph)
+				gaugeSets[i].temp.labels(measurement='temperature').set(temp)
+				gaugeSets[i].ph.labels(measurement='ph').set(ph)
 				print(temp , "   ", ph ) 
 			time.sleep(int(args.period))
 			
